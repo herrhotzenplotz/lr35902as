@@ -3,13 +3,18 @@ PROGS=	\
 	lr35902as
 
 CLEANFILES=	instrs.h
-MAN=
 
-CSTD=	c99
+CC=c99
+CFLAGS=	-g -O0
+
+.PHONY: all clean
+
+all: ${PROGS}
 
 instrs.h: opcodes.json genoptable.sh
 	./genoptable.sh > instrs.h
 
 lr35902dis.c: instrs.h
 
-.include <bsd.progs.mk>
+clean:
+	rm -f ${CLEANFILES} ${PROGS}
