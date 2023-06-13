@@ -104,6 +104,13 @@ static char const *const condition_codes[] = {
 	[CC_C] = "c"            /* carry set */
 };
 
+static char *
+xstrndup(char const *src, size_t max)
+{
+	char *result = malloc(max + 1);
+	return strncpy(result, src, max);
+}
+
 static int
 toktoreg(struct token *t)
 {
@@ -234,7 +241,7 @@ label_new(struct token *t)
 		abort();
 
 	size_t len = token_len(t);
-	l->name = strndup(t->begin, len);
+	l->name = xstrndup(t->begin, len);
 
 	TAILQ_INSERT_TAIL(&labels, l, next);
 
