@@ -7,6 +7,7 @@
 #include <err.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <getopt.h>
 #include <inttypes.h>
 #include <stdarg.h>
 #include <stdint.h>
@@ -20,7 +21,7 @@
 
 #define ARRAY_SIZE(xs) ((sizeof(xs) / sizeof(*xs)))
 
-static FILE *lin, *fout;        /* input and output file */
+static FILE *fout = NULL;       /* input and output file */
 static int pass = 0;            /* pass number */
 
 enum {
@@ -65,7 +66,7 @@ struct lexbuf {
 	                         * of buffer at hd */
 };
 
-static struct lexbuf *currlexbuf; /* current lex buffer */
+static struct lexbuf *currlexbuf = NULL; /* current lex buffer */
 
 struct label {
 	char const *name;
@@ -741,9 +742,9 @@ jrcb(struct token *t)
 static void
 stackcb(struct token *t)
 {
-	int             is_push = 0;
-	struct operand  opsrc;
-	struct token   *next;
+	int is_push = 0;
+	struct operand opsrc;
+	struct token *next;
 
 	next = peektoken(0);
 
@@ -841,8 +842,8 @@ reg16op2oct(int am)
 static void
 ldcb(struct token *t)
 {
-	struct operand  opdst = {0}, opsrc = {0};
-	struct token   *comma;
+	struct operand opdst = {0}, opsrc = {0};
+	struct token *comma;
 
 	readoperand(&opdst);
 	comma = nexttoken();
@@ -910,9 +911,10 @@ ldcb(struct token *t)
 		case REG_BC:
 			break;
 		case REG_DE:
-			opcode         |= 020; break;
+			opcode |= 020;
+			break;
 		case REG_HL|OP_INC:
-			opcode         |= 040;
+			opcode |= 040;
 			if (iop.imm)
 				opcode |= 020;
 			break;
@@ -1323,27 +1325,66 @@ assemble(void)
 		dopass();
 }
 
-int
-main(int argc, char *argv[])
+static void
+usage(void)
 {
-	currlexbuf = NULL;
+	fprintf(stderr, "usage: lr35902as [-o out.bin] input.S\n");
+	fprintf(stderr, "OPTIONS:\n");
+	fprintf(stderr, "  -o out.bin    Assemble into out.bin. Defaults to a.bin\n");
+	fprintf(stderr, "\n");
+	fprintf(stderr, "LR35902 Assembler.\nCopyright 2023 Nico Sonack\n");
+}
 
-	if (argc != 3)
-		errx(1, "invalid number of arguments");
+static void
+parseflags(int argc, char *argv[])
+{
+	struct option options[] = {
+		{ .name = "output", .has_arg = required_argument, .flag = NULL, .val = 'o' },
+		{0}
+	};
+	int ch = 0;
 
-	struct lexbuf *buf = lexbuf_open(argv[1]);
+	while ((ch = getopt_long(argc, argv, "+o:", options, NULL)) != -1) {
+		switch (ch) {
+		case 'o': {
+			fout = fopen(optarg, "wb");
+			if (!fout)
+				err(1, "open output: %s", optarg);
+		} break;
+		default:
+			usage();
+			exit(EXIT_FAILURE);
+		}
+	}
+
+	argc -= optind;
+	argv += optind;
+
+	/* open a.bin if -o was not specified */
+	if (fout == NULL) {
+		fout = fopen("a.bin", "wb");
+		if (!fout)
+			err(1, "couldn't open a.bin");
+	}
+
+	/* maybe support stdin as well? */
+	if (argc == 0)
+		errx(1, "error: missing input file");
+
+
+	struct lexbuf *buf = lexbuf_open(argv[0]);
 	if (!buf)
-		err(1, "open %s", argv[1]);
+		err(1, "open %s", argv[0]);
 
 	buf->parent = currlexbuf;
 	currlexbuf = buf;
+}
 
-	fout = fopen(argv[2], "wb");
-	if (!fout)
-		err(1, "open output: %s", argv[2]);
-
+int
+main(int argc, char *argv[])
+{
+	parseflags(argc, argv);
 	assemble();
-
 	fclose(fout);
 
 	return 0;
