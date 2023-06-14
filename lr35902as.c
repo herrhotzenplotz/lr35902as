@@ -56,7 +56,7 @@ static TAILQ_HEAD(tokstk, token) tstack =
 #define token_len(t) ((t)->end - (t)->begin)
 
 struct lexbuf {
-	struct lexbuf *next, *parent;
+	struct lexbuf *parent;  /* Lexbuf chain when processing includes */
 	char const *filename;   /* file name */
 	int line, column;       /* current location in buffer */
 	int fd;                 /* fd of mapped object */
@@ -407,8 +407,14 @@ static void
 skip(void)
 {
 again:
-	if (currlexbuf->len == 0)
-		return;
+	if (currlexbuf->len == 0) {
+		if (!currlexbuf->parent)
+			return;
+
+		/* todo: cleanup */
+		currlexbuf = currlexbuf->parent;
+		goto again;
+	}
 
 	if (isspace(*currlexbuf->hd)) {
 		whitespace();
@@ -431,6 +437,33 @@ lexsingle(struct token *t, char c)
 	currlexbuf->len -= 1;
 
 	return t;
+}
+
+static struct token *
+lexstrlit(struct token *t)
+{
+	t->end = t->begin + 1;
+	t->kind = TOKEN_STRLIT;
+	currlexbuf->hd += 1;
+	currlexbuf->len -= 1;
+
+	for (;;) {
+		char c = *t->end;
+		switch (c) {
+		case '\0':
+		case '\n':
+			berror(currlexbuf, "unterminated string literal");
+			break;
+		default:
+			t->end += 1;
+			currlexbuf->len -= 1;
+			currlexbuf->column += 1;
+			currlexbuf->hd += 1;
+
+			if (c == '\"')
+				return t;
+		}
+	}
 }
 
 static struct token *
@@ -468,6 +501,8 @@ lex(void)
 	if (c == ':' || c == ',' || c == '(' || c == ')' ||
 	    c == '+' || c == '-')
 		return lexsingle(t, c);
+	else if (c == '"')
+		return lexstrlit(t);
 	else
 		berror(currlexbuf, "unrecognised character %c", c);
 
@@ -1219,41 +1254,72 @@ ldhcb(struct token *t)
 	}
 }
 
+static void
+includecheck(struct token *t, char *filename)
+{
+	for (struct lexbuf *buf = currlexbuf; buf; buf = buf->parent)
+		if (strcmp(filename, buf->filename) == 0)
+			terror(t, "circular inclusion of '%s'", filename);
+}
+
+static void
+includecb(struct token *t)
+{
+	char *filename;
+	struct token *pathtok = nexttoken();
+	struct lexbuf *newbuf;
+
+	if (pathtok->kind != TOKEN_STRLIT)
+		terror(t, "expected string literal for include path");
+
+	filename = xstrndup(pathtok->begin + 1, token_len(pathtok) - 2);
+	includecheck(t, filename);
+
+	newbuf = lexbuf_open(filename);
+	if (!newbuf)
+		terror(pathtok, "could not open %s: %s",
+		       filename, strerror(errno));
+
+	newbuf->parent = currlexbuf;
+	currlexbuf = newbuf;
+}
+
 static struct instdef {
 	char *mnemonic;
 	void (*cb)(struct token *t);
 } insts[] = {
-	{ .mnemonic = ".org", .cb = orgcb     },
-	{ .mnemonic = "ld",   .cb = ldcb      },
-	{ .mnemonic = "ldh",  .cb = ldhcb     },
-	{ .mnemonic = "call", .cb = branchcb  },
-	{ .mnemonic = "push", .cb = stackcb   },
-	{ .mnemonic = "pop",  .cb = stackcb   },
-	{ .mnemonic = "ret",  .cb = retcb     },
-	{ .mnemonic = "inc",  .cb = inccb     },
-	{ .mnemonic = "dec",  .cb = deccb     },
-	{ .mnemonic = "add",  .cb = alu2opscb },
-	{ .mnemonic = "adc",  .cb = alu2opscb },
-	{ .mnemonic = "sbc",  .cb = alu2opscb },
-	{ .mnemonic = "sub",  .cb = alu1opcb  },
-	{ .mnemonic = "and",  .cb = alu1opcb  },
-	{ .mnemonic = "xor",  .cb = alu1opcb  },
-	{ .mnemonic = "or",   .cb = alu1opcb  },
-	{ .mnemonic = "cp",   .cb = alu1opcb  },
-	{ .mnemonic = "jp",   .cb = branchcb  },
-	{ .mnemonic = "jr",   .cb = jrcb      },
-	{ .mnemonic = "rlc",  .cb = rotatecb  },
-	{ .mnemonic = "rrc",  .cb = rotatecb  },
-	{ .mnemonic = "rl",   .cb = rotatecb  },
-	{ .mnemonic = "rr",   .cb = rotatecb  },
-	{ .mnemonic = "sla",  .cb = rotatecb  },
-	{ .mnemonic = "sra",  .cb = rotatecb  },
-	{ .mnemonic = "swap", .cb = rotatecb  },
-	{ .mnemonic = "srl",  .cb = rotatecb  },
-	{ .mnemonic = "bit",  .cb = bitcb     },
-	{ .mnemonic = "res",  .cb = bitcb     },
-	{ .mnemonic = "set",  .cb = bitcb     },
-	{ .mnemonic = "rst",  .cb = rstcb     },
+	{ .mnemonic = ".org",     .cb = orgcb     },
+	{ .mnemonic = ".include", .cb = includecb },
+	{ .mnemonic = "ld",       .cb = ldcb      },
+	{ .mnemonic = "ldh",      .cb = ldhcb     },
+	{ .mnemonic = "call",     .cb = branchcb  },
+	{ .mnemonic = "push",     .cb = stackcb   },
+	{ .mnemonic = "pop",      .cb = stackcb   },
+	{ .mnemonic = "ret",      .cb = retcb     },
+	{ .mnemonic = "inc",      .cb = inccb     },
+	{ .mnemonic = "dec",      .cb = deccb     },
+	{ .mnemonic = "add",      .cb = alu2opscb },
+	{ .mnemonic = "adc",      .cb = alu2opscb },
+	{ .mnemonic = "sbc",      .cb = alu2opscb },
+	{ .mnemonic = "sub",      .cb = alu1opcb  },
+	{ .mnemonic = "and",      .cb = alu1opcb  },
+	{ .mnemonic = "xor",      .cb = alu1opcb  },
+	{ .mnemonic = "or",       .cb = alu1opcb  },
+	{ .mnemonic = "cp",       .cb = alu1opcb  },
+	{ .mnemonic = "jp",       .cb = branchcb  },
+	{ .mnemonic = "jr",       .cb = jrcb      },
+	{ .mnemonic = "rlc",      .cb = rotatecb  },
+	{ .mnemonic = "rrc",      .cb = rotatecb  },
+	{ .mnemonic = "rl",       .cb = rotatecb  },
+	{ .mnemonic = "rr",       .cb = rotatecb  },
+	{ .mnemonic = "sla",      .cb = rotatecb  },
+	{ .mnemonic = "sra",      .cb = rotatecb  },
+	{ .mnemonic = "swap",     .cb = rotatecb  },
+	{ .mnemonic = "srl",      .cb = rotatecb  },
+	{ .mnemonic = "bit",      .cb = bitcb     },
+	{ .mnemonic = "res",      .cb = bitcb     },
+	{ .mnemonic = "set",      .cb = bitcb     },
+	{ .mnemonic = "rst",      .cb = rstcb     },
 };
 static size_t const insts_size = ARRAY_SIZE(insts);
 

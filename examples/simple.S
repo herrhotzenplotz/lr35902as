@@ -1,4 +1,5 @@
         ;; Simple demonstration of the Assembler's capabilities
+        .include "defs.S"
 
 entry:  ld      sp, 8000h       ; Setup some sort of stack
         call    main
