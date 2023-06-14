@@ -70,6 +70,7 @@ static struct lexbuf *currlexbuf = NULL; /* current lex buffer */
 
 struct label {
 	char const *name;
+	struct token *token;    /* token that defined the label */
 	int has_value;
 	uint16_t value;
 
@@ -279,6 +280,40 @@ terror(struct token *t, char const *const fmt, ...)
 	va_end(vp);
 
 	fputc('\n', stderr);
+	exit(EXIT_FAILURE);
+}
+
+static void
+terror_start(struct token *t, char const *const fmt, ...)
+{
+	va_list vp;
+
+	fprintf(stderr, "%s:%d:%d: error: ", t->filename, t->line, t->column);
+
+	va_start(vp, fmt);
+	vfprintf(stderr, fmt, vp);
+	va_end(vp);
+
+	fputc('\n', stderr);
+}
+
+static void
+tnote(struct token *t, char const *const fmt, ...)
+{
+	va_list vp;
+
+	fprintf(stderr, "%s:%d:%d: note: ", t->filename, t->line, t->column);
+
+	va_start(vp, fmt);
+	vfprintf(stderr, fmt, vp);
+	va_end(vp);
+
+	fputc('\n', stderr);
+}
+
+static void
+bail(void)
+{
 	exit(EXIT_FAILURE);
 }
 
@@ -570,12 +605,16 @@ definelabel(struct token *t)
 
 	/* Only in the first pass we define names for symbols */
 	if (pass == 0) {
-		if (find_label(t))
-			terror(t, "label redefined");
+		if ((l = find_label(t))) {
+			terror_start(t, "label redefined");
+			tnote(l->token, "previously defined here");
+			bail();
+		}
 
 		l = label_new(t);
 		l->has_value = 1;
 		l->value = curraddr;
+		l->token = t;
 	} else {
 		l = find_label(t);
 		assert(l);
