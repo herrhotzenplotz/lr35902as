@@ -1338,12 +1338,31 @@ dwcb(struct token *t)
 	emitword(op.imm);
 }
 
+static void
+dbcb(struct token *t)
+{
+	struct operand op;
+	struct token *immtok;
+
+	immtok = peektoken(0);
+	readoperand(&op);
+
+	if (!opisimm(&op))
+		terror(immtok, "expected a constant value");
+
+	if (op.imm & 0xFF00)
+		terror(immtok, "constant too large");
+
+	emitbyte((uint8_t)(op.imm & 0xFF));
+}
+
 static struct instdef {
 	char *mnemonic;
 	void (*cb)(struct token *t);
 } insts[] = {
 	{ .mnemonic = ".org",     .cb = orgcb     },
 	{ .mnemonic = ".dw",      .cb = dwcb      },
+	{ .mnemonic = ".db",      .cb = dbcb      },
 	{ .mnemonic = ".include", .cb = includecb },
 	{ .mnemonic = "ld",       .cb = ldcb      },
 	{ .mnemonic = "ldh",      .cb = ldhcb     },
