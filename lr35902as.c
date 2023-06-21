@@ -1323,11 +1323,27 @@ includecb(struct token *t)
 	currlexbuf = newbuf;
 }
 
+static void
+dwcb(struct token *t)
+{
+	struct operand op;
+	struct token *immtok;
+
+	immtok = peektoken(0);
+	readoperand(&op);
+
+	if (!opisimm(&op))
+		terror(immtok, "expected a constant value");
+
+	emitword(op.imm);
+}
+
 static struct instdef {
 	char *mnemonic;
 	void (*cb)(struct token *t);
 } insts[] = {
 	{ .mnemonic = ".org",     .cb = orgcb     },
+	{ .mnemonic = ".dw",      .cb = dwcb      },
 	{ .mnemonic = ".include", .cb = includecb },
 	{ .mnemonic = "ld",       .cb = ldcb      },
 	{ .mnemonic = "ldh",      .cb = ldhcb     },
