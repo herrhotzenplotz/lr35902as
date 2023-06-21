@@ -1,12 +1,9 @@
         ;; Simple demonstration of the Assembler's capabilities
-        .include "defs.S"
+        .include "examples/defs.S"
 
-entry:  ld      sp, 8000h       ; Setup some sort of stack
-        call    main
-        halt
-
-        .org    100h            ; Set PC
-main:   ld      a, 42
-loop:   dec     a               ; Little decrement loop
-        ret     nz
-        jp      loop
+blab:
+	ld      a, 42
+blabloop:
+	dec     a               ; Little decrement loop
+	ret     nz
+	jp      loop
