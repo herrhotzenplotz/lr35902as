@@ -34,6 +34,7 @@ enum {
 	TOKEN_COMMA = ',',
 	TOKEN_PLUS = '+',
 	TOKEN_MINUS = '-',
+	TOKEN_EQ = '=',
 	TOKEN_EOF = 0xFF,
 };
 
@@ -534,7 +535,8 @@ lex(void)
 		return lexidentifier(t);
 
 	if (c == ':' || c == ',' || c == '(' || c == ')' ||
-	    c == '+' || c == '-')
+	    c == '+' || c == '-' || c == '=' || c == '*' ||
+	    c == '/')
 		return lexsingle(t, c);
 	else if (c == '"')
 		return lexstrlit(t);
@@ -675,6 +677,203 @@ readoperand(struct operand *out)
 		out->imm = t->value.number;
 	} else {
 		terror(t, "invalid addressing mode");
+	}
+}
+
+static inline int
+token_isvalue(struct token *t)
+{
+	return t->kind == TOKEN_IDENT ||
+		t->kind == TOKEN_NUMBER;
+}
+
+static inline int
+token_isoperator(struct token *t)
+{
+	return t->kind == '(' || t->kind == ')' || t->kind == '+' ||
+		t->kind == '-' || t->kind == '*' || t->kind == '/';
+}
+
+static inline int
+prec(char c)
+{
+	switch (c) {
+	case '+': return 2;
+	case '-': return 2;
+	case '/': return 3;
+	case '*': return 3;
+	default: assert(0 && "unreachable");
+	}
+}
+
+static inline int
+isleftassoc(char c)
+{
+	return 1;
+}
+
+static inline uint16_t
+perform(char c, uint16_t left, uint16_t right)
+{
+	switch (c) {
+	case '+': return left + right;
+	case '-': return left - right;
+	case '*': return left * right;
+	case '/': return left / right;
+	default: assert(0 && "unreachable");
+	}
+}
+
+#define STK_MAX 64
+static uint16_t
+readexpression(struct token *t)
+{
+        uint16_t valstk[STK_MAX] = {0};
+	size_t valsp = 0;
+	char opstk[STK_MAX] = {0};
+	size_t opsp = 0;
+	int found_op = 1;
+
+	for (;;) {
+		t = peektoken(0);
+
+		if (found_op == 0 && token_isvalue(t))
+			break;
+
+
+		if (t->kind == TOKEN_NUMBER) {
+			if (valsp == STK_MAX)
+				terror(t, "value stack overflow");
+
+			valstk[valsp++] = t->value.number;
+			found_op = 0;
+
+		} else if (t->kind == '(') {
+			if (opsp == STK_MAX)
+				terror(t, "operator stack overflow");
+
+			opstk[opsp++] = t->kind;
+			found_op = 1;
+
+		} else if (t->kind == TOKEN_IDENT) {
+			uint16_t val = 0;
+
+			if (token_len(t) == 1 && t->begin[0] == '.') {
+				val = curraddr;
+			} else {
+				struct label *l = find_label(t);
+				if (pass) {
+					if (!l)
+						terror(t, "reference to undefined symbol");
+
+					val = l->value;
+				}
+			}
+
+			if (valsp == STK_MAX)
+				terror(t, "value stack overflow");
+
+			valstk[valsp++] = val;
+			found_op = 0;
+		} else if (t->kind == ')') {
+			while (opsp && opstk[opsp-1] != '(') {
+				uint16_t left, right;
+				right = valstk[--valsp];
+				left = valstk[--valsp];
+				valstk[valsp++] = perform(opstk[--opsp], left, right);
+			}
+
+			if (!opsp || opstk[opsp-1] != '(')
+				terror(t, "unmatched parenthesis");
+
+			opsp--;
+			found_op = 1;
+		} else if (token_isoperator(t)) {
+
+			for (;;) {
+				uint16_t left, right;
+				char o2, o1;
+
+				if (!opsp)
+					break;
+
+				o1 = t->kind;
+				o2 = opstk[opsp-1];
+
+				if (o2 == '(')
+					break;
+
+				if (!(prec(o2) > prec(o1) ||
+				      (prec(o1) == prec(o2) && isleftassoc(o1))))
+					break;
+
+				--opsp;
+
+				if (valsp < 2)
+					terror(t, "unexpected '%c'", o1);
+
+				right = valstk[--valsp];
+				left = valstk[--valsp];
+				valstk[valsp++] = perform(o2, left, right);
+			}
+
+			opstk[opsp++] = t->kind;
+			found_op = 1;
+		} else {
+			terror(t, "unexpected token");
+		}
+
+		nexttoken();
+	}
+
+	while (opsp) {
+		char op;
+		uint16_t left, right;
+		if ((op = opstk[--opsp]) == '(')
+			terror(t, "unbalanced parentheses");
+
+		if (valsp < 2)
+			terror(t, "value stack underflow");
+
+		right = valstk[--valsp];
+		left = valstk[--valsp];
+		valstk[valsp++] = perform(op, left, right);
+	}
+
+	if (valsp != 1)
+		terror(t, "unexpected token"); // TODO: fix this error message
+
+	return valstk[--valsp];
+}
+
+static void
+definelabel_expr(struct token *t)
+{
+	struct label *l;
+
+	if (pass == 0) {
+		if ((l = find_label(t))) {
+			terror_start(t, "label redefined");
+			tnote(l->token, "previously defined here");
+			bail();
+		}
+
+		l = label_new(t);
+		l->has_value = 0;
+		l->value = readexpression(t);
+		l->token = t;
+	} else {
+		l = find_label(t);
+		assert(l);
+
+		l->value = readexpression(t);
+		l->has_value = 1;
+
+#if defined(DEBUG) && DEBUG
+		printf("   => %.*s = %"PRIu16"\n",
+		       (int)token_len(t), t->begin,
+		       l->value);
+#endif /* defined(DEBUG) */
 	}
 }
 
@@ -1471,10 +1670,14 @@ dopass(void)
 			terror(t, "expected an identifier");
 
 		struct token *col = peektoken(0);
-		if (col->kind == TOKEN_COLON)
+		if (col->kind == TOKEN_COLON) {
 			definelabel(t);
-		else
+		} else if (col->kind == TOKEN_EQ) {
+			nexttoken(); /* skip = */
+			definelabel_expr(t);
+		} else {
 			parseinstruction(t);
+		}
 	}
 }
 
