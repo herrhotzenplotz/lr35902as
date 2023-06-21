@@ -1356,6 +1356,24 @@ dbcb(struct token *t)
 	emitbyte((uint8_t)(op.imm & 0xFF));
 }
 
+static void
+asciicb(struct token *t)
+{
+	struct token *strlit;
+
+	strlit = nexttoken();
+	for (size_t i = 1; i < token_len(strlit) - 1; ++i) {
+		emitbyte(strlit->begin[i]);
+	}
+}
+
+static void
+asciizcb(struct token *t)
+{
+	asciicb(t);
+	emitbyte(0);
+}
+
 static struct instdef {
 	char *mnemonic;
 	void (*cb)(struct token *t);
@@ -1364,6 +1382,8 @@ static struct instdef {
 	{ .mnemonic = ".dw",      .cb = dwcb      },
 	{ .mnemonic = ".db",      .cb = dbcb      },
 	{ .mnemonic = ".include", .cb = includecb },
+	{ .mnemonic = ".ascii",   .cb = asciicb   },
+	{ .mnemonic = ".asciiz",  .cb = asciizcb  },
 	{ .mnemonic = "ld",       .cb = ldcb      },
 	{ .mnemonic = "ldh",      .cb = ldhcb     },
 	{ .mnemonic = "call",     .cb = branchcb  },
