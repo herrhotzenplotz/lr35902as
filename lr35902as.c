@@ -21,7 +21,8 @@
 
 #define ARRAY_SIZE(xs) ((sizeof(xs) / sizeof(*xs)))
 
-static FILE *fout = NULL;       /* input and output file */
+static FILE *fout = NULL;       /* output file */
+static FILE *lout = NULL;       /* listing file (optional) */
 static int pass = 0;            /* pass number */
 
 enum {
@@ -63,6 +64,7 @@ struct lexbuf {
 	int fd;                 /* fd of mapped object */
 
 	char *hd, *buffer;      /* front pointer and pointer to mapped buffer */
+	char *sol;              /* start of line pointer */
 	size_t buflen, len;     /* length of mapped buffer and length
 	                         * of buffer at hd */
 };
@@ -82,6 +84,7 @@ static TAILQ_HEAD(labels, label) labels =
 	TAILQ_HEAD_INITIALIZER(labels); /* list of known labels */
 
 static uint16_t curraddr = 0;   /* current assembler address */
+static char bytebuf[4096] = {0};
 
 enum {
 	REG_A  = 0x01, REG_F  = 0x02, REG_AF = 0x03,
@@ -199,8 +202,9 @@ lexbuf_open(char const *filename)
 	if (fstat(buf->fd, &sb) < 0)
 		goto fail;
 
-	buf->buffer = buf->hd = mmap(
-		NULL, sb.st_size, PROT_READ, MAP_PRIVATE, buf->fd, 0);
+	buf->sol = buf->buffer = buf->hd =
+		mmap(NULL, sb.st_size, PROT_READ, MAP_PRIVATE, buf->fd, 0);
+
 	if (buf->buffer == MAP_FAILED)
 		goto fail;
 
@@ -224,6 +228,7 @@ lexer_reset(void)
 	struct token *t;
 
 	currlexbuf->hd = currlexbuf->buffer;
+	currlexbuf->sol = currlexbuf->hd;
 	currlexbuf->len = currlexbuf->buflen;
 	currlexbuf->line = 1;
 	currlexbuf->column = 1;
@@ -334,6 +339,31 @@ berror(struct lexbuf *b, char const *const fmt, ...)
 }
 
 static void
+emitlisting(char const *const fmt, ...)
+{
+	va_list vp;
+
+	if (!pass)
+		return;
+
+	if (!lout)
+		return;
+
+	va_start(vp, fmt);
+	vfprintf(lout, fmt, vp);
+	va_end(vp);
+}
+
+static void
+dumpbytebuf(void)
+{
+	if (bytebuf[0]) {
+		emitlisting("\t;%s\n", bytebuf);
+		bytebuf[0] = '\0';
+	}
+}
+
+static void
 whitespace(void)
 {
 	for (;;) {
@@ -342,7 +372,8 @@ whitespace(void)
 
 		switch (*currlexbuf->hd) {
 		case '\n':
-			currlexbuf->hd++;
+			emitlisting("%.*s\n", (int)(currlexbuf->hd - currlexbuf->sol), currlexbuf->sol);
+			currlexbuf->sol = ++currlexbuf->hd;
 			currlexbuf->line++;
 			currlexbuf->column = 1;
 			break;
@@ -448,6 +479,9 @@ again:
 			return;
 
 		/* todo: cleanup */
+		emitlisting("\t; < Returning from file %s to file %s\n",
+		            currlexbuf->filename,
+		            currlexbuf->parent->filename);
 		currlexbuf = currlexbuf->parent;
 		goto again;
 	}
@@ -622,6 +656,10 @@ definelabel(struct token *t)
 		assert(l);
 		if (!l->has_value)
 			terror(t, "cannot compute value of label");
+
+		emitlisting("\t; regular label %.*s = %04"PRIx16"h\n",
+		            (int)(token_len(l->token)), l->token->begin,
+		            l->value);
 	}
 }
 
@@ -869,11 +907,10 @@ definelabel_expr(struct token *t)
 		l->value = readexpression(t);
 		l->has_value = 1;
 
-#if defined(DEBUG) && DEBUG
-		printf("   => %.*s = %"PRIu16"\n",
-		       (int)token_len(t), t->begin,
-		       l->value);
-#endif /* defined(DEBUG) */
+		emitlisting("\t; Label %.*s = %04"PRIx16"h\n",
+		            (int)(token_len(l->token)),
+		            l->token->begin,
+		            l->value);
 	}
 }
 
@@ -897,8 +934,13 @@ emitbyte(uint8_t b)
 {
 	curraddr += 1;
 
-	if (pass)
+	if (pass) {
+		char tmp[5] = {0};
 		fwrite(&b, 1, 1, fout);
+
+		snprintf(tmp, sizeof(tmp), " %02"PRIx8"h", b);
+		strlcat(bytebuf, tmp, sizeof(bytebuf));
+	}
 }
 
 static inline void
@@ -1513,6 +1555,8 @@ includecb(struct token *t)
 	filename = xstrndup(pathtok->begin + 1, token_len(pathtok) - 2);
 	includecheck(t, filename);
 
+	emitlisting("\t; > Including %s\n", filename);
+
 	newbuf = lexbuf_open(filename);
 	if (!newbuf)
 		terror(pathtok, "could not open %s: %s",
@@ -1678,6 +1722,8 @@ dopass(void)
 		} else {
 			parseinstruction(t);
 		}
+
+		dumpbytebuf();
 	}
 }
 
@@ -1691,9 +1737,10 @@ assemble(void)
 static void
 usage(void)
 {
-	fprintf(stderr, "usage: lr35902as [-o out.bin] input.S\n");
+	fprintf(stderr, "usage: lr35902as [-o out.bin] [-l listing.lst] input.S\n");
 	fprintf(stderr, "OPTIONS:\n");
-	fprintf(stderr, "  -o out.bin    Assemble into out.bin. Defaults to a.bin\n");
+	fprintf(stderr, "  -o out.bin        Assemble into out.bin. Defaults to a.bin\n");
+	fprintf(stderr, "  -l listing.lst    Produce a listing file in listing.lst\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "LR35902 Assembler.\nCopyright 2023 Nico Sonack\n");
 }
@@ -1702,17 +1749,23 @@ static void
 parseflags(int argc, char *argv[])
 {
 	struct option options[] = {
-		{ .name = "output", .has_arg = required_argument, .flag = NULL, .val = 'o' },
+		{ .name = "output",  .has_arg = required_argument, .flag = NULL, .val = 'o' },
+		{ .name = "listing", .has_arg = required_argument, .flag = NULL, .val = 'l' },
 		{0}
 	};
 	int ch = 0;
 
-	while ((ch = getopt_long(argc, argv, "+o:", options, NULL)) != -1) {
+	while ((ch = getopt_long(argc, argv, "+o:l:", options, NULL)) != -1) {
 		switch (ch) {
 		case 'o': {
 			fout = fopen(optarg, "wb");
 			if (!fout)
 				err(1, "open output: %s", optarg);
+		} break;
+		case 'l': {
+			lout = fopen(optarg, "w");
+			if (!lout)
+				err(1, "open listing: %s", optarg);
 		} break;
 		default:
 			usage();
