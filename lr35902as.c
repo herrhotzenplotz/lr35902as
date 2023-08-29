@@ -1049,7 +1049,7 @@ jrcb(struct token *t)
 		/* Displacement is counted after reading the
 		 * opcode. At that point the PC has already been
 		 * incremented. Here we account for that. */
-		int32_t const rel = (int32_t)l->value - (int32_t)curraddr - 1;
+		int32_t const rel = (int32_t)l->value - (int32_t)curraddr - 2;
 		if (rel < (int8_t)0x80 || rel > (int8_t)0x7F)
 			terror(t, "jump distance too large");
 
@@ -1639,6 +1639,13 @@ dbcb(struct token *t)
 }
 
 static void
+stopcb(struct token *t)
+{
+	emitbyte(0020);
+	emitbyte(0);
+}
+
+static void
 asciicb(struct token *t)
 {
 	struct token *strlit;
@@ -1696,6 +1703,7 @@ static struct instdef {
 	{ .mnemonic = "res",      .cb = bitcb     },
 	{ .mnemonic = "set",      .cb = bitcb     },
 	{ .mnemonic = "rst",      .cb = rstcb     },
+	{ .mnemonic = "stop",     .cb = stopcb    },
 };
 static size_t const insts_size = ARRAY_SIZE(insts);
 
