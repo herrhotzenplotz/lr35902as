@@ -1570,33 +1570,47 @@ static void
 dwcb(struct token *t)
 {
 	struct operand op;
-	struct token *immtok;
+	struct token *immtok, *comma;
 
-	immtok = peektoken(0);
-	readoperand(&op);
+	for (;;) {
+	    immtok = peektoken(0);
+	    readoperand(&op);
 
-	if (!opisimm(&op))
+	    if (!opisimm(&op))
 		terror(immtok, "expected a constant value");
 
-	emitword(op.imm);
+	    emitword(op.imm);
+
+	    if ((comma = peektoken(0)) && comma->kind != ',')
+		break;
+
+	    nexttoken();
+	}
 }
 
 static void
 dbcb(struct token *t)
 {
 	struct operand op;
-	struct token *immtok;
+	struct token *immtok, *comma;
 
-	immtok = peektoken(0);
-	readoperand(&op);
+	for (;;) {
+	    immtok = peektoken(0);
+	    readoperand(&op);
 
-	if (!opisimm(&op))
+	    if (!opisimm(&op))
 		terror(immtok, "expected a constant value");
 
-	if (op.imm & 0xFF00)
+	    if (op.imm & 0xFF00)
 		terror(immtok, "constant too large");
 
-	emitbyte((uint8_t)(op.imm & 0xFF));
+	    emitbyte((uint8_t)(op.imm & 0xFF));
+
+	    if ((comma = peektoken(0)) && comma->kind != ',')
+		break;
+
+	    nexttoken();
+	}
 }
 
 static void
