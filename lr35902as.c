@@ -1674,8 +1674,8 @@ static struct sinstdef {
 	{ .mnemonic = "scf",   .opcode = 0067 },
 	{ .mnemonic = "ccf",   .opcode = 0077 },
 	{ .mnemonic = "halt",  .opcode = 0166 },
-	{ .mnemonic = "di",    .opcode = 0366 },
-	{ .mnemonic = "ei",    .opcode = 0376 },
+	{ .mnemonic = "di",    .opcode = 0363 },
+	{ .mnemonic = "ei",    .opcode = 0373 },
 };
 static size_t const simple_insts_size = ARRAY_SIZE(simple_insts);
 
