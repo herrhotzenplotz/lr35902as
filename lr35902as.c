@@ -1206,6 +1206,18 @@ ldcb(struct token *t)
 		return;
 	}
 
+	/* Special case: store of accumulator at address. Equivalent
+	 * load is below. */
+	if (opsrc.am == (OP_REG|REG_A) && (opdst.am == OP_INDIR)) {
+		emitbyte(0352);
+		emitword(opdst.imm);
+		return;
+	} else if (opdst.am == (OP_REG|REG_A) && (opsrc.am == OP_INDIR)) {
+		emitbyte(0372);
+		emitword(opsrc.imm);
+		return;
+	}
+
 	/* 8 bit load/store of accumulator indirected */
 	if (((opsrc.am == (OP_REG|REG_A)) != (opdst.am == (OP_REG|REG_A))) &&
 	    ((opsrc.am & OP_INDIR) != (opdst.am & OP_INDIR)))
