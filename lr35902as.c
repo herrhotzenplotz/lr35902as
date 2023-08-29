@@ -23,6 +23,7 @@
 
 static FILE *fout = NULL;       /* output file */
 static FILE *lout = NULL;       /* listing file (optional) */
+static FILE *sout = NULL;       /* symbol table file (optional) */
 static int pass = 0;            /* pass number */
 
 enum {
@@ -632,6 +633,16 @@ iseof(void)
 }
 
 static void
+emitsymbol(struct label *l)
+{
+	if (!sout)
+		return;
+
+	fprintf(sout, "%02X:%02X %.*s\n", 0, l->value, (int)(token_len(l->token)),
+	        l->token->begin);
+}
+
+static void
 definelabel(struct token *t)
 {
 	struct label *l;
@@ -660,6 +671,8 @@ definelabel(struct token *t)
 		emitlisting("\t; regular label %.*s = %04"PRIx16"h\n",
 		            (int)(token_len(l->token)), l->token->begin,
 		            l->value);
+
+		emitsymbol(l);
 	}
 }
 
@@ -1772,6 +1785,7 @@ usage(void)
 	fprintf(stderr, "OPTIONS:\n");
 	fprintf(stderr, "  -o out.bin        Assemble into out.bin. Defaults to a.bin\n");
 	fprintf(stderr, "  -l listing.lst    Produce a listing file in listing.lst\n");
+	fprintf(stderr, "  -s symbols.sym    Produce a symbol table for use in SameBoy\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "LR35902 Assembler.\nCopyright 2023 Nico Sonack\n");
 }
@@ -1782,11 +1796,12 @@ parseflags(int argc, char *argv[])
 	struct option options[] = {
 		{ .name = "output",  .has_arg = required_argument, .flag = NULL, .val = 'o' },
 		{ .name = "listing", .has_arg = required_argument, .flag = NULL, .val = 'l' },
+		{ .name = "symbols", .has_arg = required_argument, .flag = NULL, .val = 's' },
 		{0}
 	};
 	int ch = 0;
 
-	while ((ch = getopt_long(argc, argv, "+o:l:", options, NULL)) != -1) {
+	while ((ch = getopt_long(argc, argv, "+o:l:s:", options, NULL)) != -1) {
 		switch (ch) {
 		case 'o': {
 			fout = fopen(optarg, "wb");
@@ -1797,6 +1812,11 @@ parseflags(int argc, char *argv[])
 			lout = fopen(optarg, "w");
 			if (!lout)
 				err(1, "open listing: %s", optarg);
+		} break;
+		case 's': {
+			sout = fopen(optarg, "w");
+			if (!sout)
+				err(1, "open symbols: %s", optarg);
 		} break;
 		default:
 			usage();
@@ -1833,6 +1853,11 @@ main(int argc, char *argv[])
 	parseflags(argc, argv);
 	assemble();
 	fclose(fout);
+
+	if (sout)
+		fclose(sout);
+	if (lout)
+		fclose(lout);
 
 	return 0;
 }
