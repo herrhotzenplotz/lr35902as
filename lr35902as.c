@@ -1229,7 +1229,7 @@ ldcb(struct token *t)
 		    opdst.am == (OP_REG|REG_A|OP_INDIR))
 			terror(t, "cannot indirect 8 bit accumulator");
 
-		if (opdst.am   == (OP_REG|REG_A)) {
+		if (opdst.am == (OP_REG|REG_A)) {
 			opcode |= 010;
 			iop = opsrc;
 		}
