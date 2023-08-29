@@ -1702,6 +1702,11 @@ static struct sinstdef {
 	{ .mnemonic = "halt",  .opcode = 0166 },
 	{ .mnemonic = "di",    .opcode = 0363 },
 	{ .mnemonic = "ei",    .opcode = 0373 },
+	{ .mnemonic = "reti",  .opcode = 0331 },
+
+	/* Software breakpoint. SameBoy seems to allow
+	 * this. Equivalent to 'ld b, b' */
+	{ .mnemonic = "brk",   .opcode = 0100 },
 };
 static size_t const simple_insts_size = ARRAY_SIZE(simple_insts);
 
