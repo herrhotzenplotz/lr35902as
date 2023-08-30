@@ -10,6 +10,7 @@ CFLAGS=	-g -O0
 .PHONY: all clean
 
 all: ${PROGS}
+	${MAKE} -C sample
 
 instrs.h: opcodes.json genoptable.sh
 	./genoptable.sh > instrs.h
