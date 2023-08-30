@@ -696,10 +696,12 @@ readoperand(struct operand *out)
 		} else {
 			struct label *l = find_label(t);
 			if (!l)
-				terror(t, "undefined reference in operand");
+				terror(t, "undefined in operand: »%.*s«",
+				       (int)(token_len(t)), t->begin);
 
 			if (!l->has_value)
-				terror(t, "operand value could not be resolved");
+				terror(t, "operand value »%.*s« could not be resolved",
+				       (int)(token_len(t)), t->begin);
 
 			out->am = 0;
 			out->imm = l->value;
@@ -815,7 +817,8 @@ readexpression(struct token *t)
 				struct label *l = find_label(t);
 				if (pass) {
 					if (!l)
-						terror(t, "reference to undefined symbol");
+						terror(t, "undefined: »%.*s«",
+						       (int)(token_len(t)), t->begin);
 
 					val = l->value;
 				}
@@ -989,10 +992,12 @@ branchcb(struct token *t)
 	if (pass) {
 		l = find_label(lname);
 		if (!l)
-			terror(lname, "undefined reference to label");
+			terror(lname, "undefined: »%.*s«",
+			       (int)(token_len(lname)), lname->begin);
 
 		if (!l->has_value)
-			terror(lname, "cannot compute address of label");
+			terror(lname, "cannot compute address of label »%.*s«",
+			       (int)(token_len(lname)), lname->begin);
 
 		addr = l->value;
 	}
@@ -1041,10 +1046,12 @@ jrcb(struct token *t)
 	if (pass) {
 		l = find_label(lname);
 		if (!l)
-			terror(lname, "undefined reference to label");
+			terror(lname, "undefined: »%.*s«",
+			       (int)(token_len(lname)), lname->begin);
 
 		if (!l->has_value)
-			terror(lname, "cannot compute address of label");
+			terror(lname, "cannot compute address of label »%.*s«",
+			       (int)(token_len(lname)), lname->begin);
 
 		/* Displacement is counted after reading the
 		 * opcode. At that point the PC has already been
