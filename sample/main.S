@@ -49,7 +49,7 @@ short_beep:
         set 6, (hl)             ; Enable sound length triggering the
                                 ; channel
 
-        ld b, 15                ; 20 timer interrupts
+        ld b, 15                ; number of timer interrupts
         call wait
         dec c                   ; short beep counter
         jr nz, short_beep
