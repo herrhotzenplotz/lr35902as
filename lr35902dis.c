@@ -8,6 +8,7 @@
 #include <assert.h>
 #include <err.h>
 #include <fcntl.h>
+#include <getopt.h>
 #include <inttypes.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -164,18 +165,63 @@ disassemble(void)
 	}
 }
 
+static uint32_t sflag = 0;
+
+static void
+usage(void)
+{
+	fprintf(stderr, "usage: lr35902dis [-s offset] input.gb\n");
+	fprintf(stderr, "OPTIONS:\n");
+	fprintf(stderr, "  -s, --offset <offset>         Start disassembling at address <offset>\n");
+	fprintf(stderr, "                                <offset> can be 0x<hex>, 0<octal> or decimal\n");
+	fprintf(stderr, "\nLR35902 Disassembler\nCopyright 2023 Nico Sonack <nsonack@herrhotzenplotz.de>\n");
+}
+
+static void
+parseflags(int *argc, char ***argv)
+{
+	int ch;
+	struct option options[] = {
+		{ .name = "offset", .has_arg = required_argument, .flag = NULL, .val = 's' },
+		{ 0 },
+	};
+
+	while ((ch = getopt_long(*argc, *argv, "s:", options, NULL)) != -1) {
+		switch (ch) {
+		case 's':
+			if (optarg[0] == '0' && optarg[1] == 'x')
+				sflag = strtoul(optarg + 2, NULL, 16); /* TODO Error handling */
+			else if (optarg[0] == '0')
+				sflag = strtoul(optarg, NULL, 8);
+			else
+				sflag = strtoul(optarg, NULL, 10);
+			break;
+		default:
+			usage();
+			exit(1);
+		}
+	}
+
+	*argc -= optind;
+	*argv += optind;
+}
+
 int
 main(int argc, char *argv[])
 {
 	int fd;
 	struct stat sb;
 
-	if (argc != 2)
-		errx(1, "missing input file or invalid flags");
+	parseflags(&argc, &argv);
+	if (argc != 1) {
+		fprintf(stderr, "error: missing input file or invalid flags\n");
+		usage();
+		return 1;
+	}
 
-	fd = open(argv[1], O_RDONLY);
+	fd = open(argv[0], O_RDONLY);
 	if (fd < 0)
-		err(1, "open %s", argv[1]);
+		err(1, "open %s", argv[0]);
 
 	if (fstat(fd, &sb) < 0)
 		err(1, "stat");
@@ -187,6 +233,10 @@ main(int argc, char *argv[])
 		err(1, "mmap");
 
 	readbuf.hd = readbuf.begin;
+
+	readbuf.len -= sflag;
+	readbuf.hd += sflag;
+	readbuf.addr += sflag;
 
 	disassemble();
 
