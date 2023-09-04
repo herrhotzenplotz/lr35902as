@@ -12,8 +12,8 @@ CFLAGS=	-g -O0
 all: ${PROGS}
 	${MAKE} -C sample
 
-instrs.h: opcodes.json genoptable.sh
-	./genoptable.sh > instrs.h
+instrs.h: opcodes.json gentab.jq gentab.awk gentab.sh
+	sh gentab.sh > instrs.h
 
 lr35902dis.c: instrs.h
 
